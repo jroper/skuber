@@ -29,13 +29,13 @@ scalacOptions += "-target:jvm-1.8"
 
 scalacOptions in Test ++= Seq("-Yrangepos")
 
-version in ThisBuild := "2.2.0"
+version in ThisBuild := "2.2.0-jroper-1"
 
 sonatypeProfileName := "io.skuber"
 
 publishMavenStyle in ThisBuild := true
 
-licenses in ThisBuild := Seq("APL2" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
+licenses in ThisBuild := Seq("Apache-2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
 
 homepage in ThisBuild := Some(url("https://github.com/doriordan"))
 
@@ -51,6 +51,7 @@ developers in ThisBuild := List(Developer(id="doriordan", name="David ORiordan",
 lazy val commonSettings = Seq(
   organization := "io.skuber",
   crossScalaVersions := Seq("2.11.12", "2.12.6"),
+  /*
   publishTo := {
     val nexus = "https://oss.sonatype.org/"
     if (isSnapshot.value)
@@ -58,6 +59,7 @@ lazy val commonSettings = Seq(
     else
       Some("releases"  at nexus + "service/local/staging/deploy/maven2")
   },
+  */
   pomIncludeRepository := { _ => false }
 )
 
@@ -67,7 +69,9 @@ lazy val skuberSettings = Seq(
     akkaHttp, akkaStream, playJson, snakeYaml, commonsIO, commonsCodec, bouncyCastle,
     scalaCheck % Test, specs2 % Test, mockito % Test, akkaStreamTestKit % Test,
     scalaTest % Test
-  ).map(_.exclude("commons-logging", "commons-logging"))
+  ).map(_.exclude("commons-logging", "commons-logging")),
+  bintrayOrganization := Some("jroper"),
+  bintrayRepository := "maven"
 )
 
 lazy val examplesSettings = Seq(
@@ -87,6 +91,7 @@ lazy val root = (project in file("."))
   .aggregate(skuber, examples)
 
 lazy val skuber= (project in file("client"))
+  .disablePlugins(Sonatype)
   .configs(IntegrationTest)
   .settings(
     commonSettings,
