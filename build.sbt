@@ -13,11 +13,6 @@ ThisBuild / scalaVersion := currentScalaVersion
 
 val supportedScalaVersion = Seq(scala12Version, scala13Version, scala3Version)
 
-/**
- * 2.6.19 is the last akka open source version
- * To comply with other companies' legal issues, akka version wont be bumped.
- * https://www.lightbend.com/blog/why-we-are-changing-the-license-for-akka
- */
 val akkaVersion = "2.6.19"
 
 val scalaCheck = "org.scalacheck" %% "scalacheck" % "1.17.0"
@@ -55,31 +50,34 @@ val apacheCommonsLogging = "commons-logging" % "commons-logging" % "1.2"
 
 Test / scalacOptions ++= Seq("-Yrangepos")
 
-sonatypeProfileName := "io.github.hagay3"
+sonatypeProfileName := "au.id.jazzy"
 
 ThisBuild / publishMavenStyle := true
 
 ThisBuild / licenses := Seq("APL2" -> url("http://www.apache.org/licenses/LICENSE-2.0.txt"))
 
-ThisBuild / homepage := Some(url("https://github.com/hagay3"))
+ThisBuild / homepage := Some(url("https://github.com/jroper/skuber3"))
 
 publishTo := sonatypePublishToBundle.value
 sonatypeCredentialHost := Sonatype.sonatype01
 ThisBuild / updateOptions := updateOptions.value.withGigahorse(false)
 
-sonatypeProjectHosting := Some(GitHubHosting("hagay3", "skuber", "hagay3@gmail.com"))
+sonatypeProjectHosting := Some(GitHubHosting("jroper", "skuber3", "james@jazzy.id.au"))
 
 ThisBuild / scmInfo := Some(
   ScmInfo(
-    url("https://github.com/hagay3/skuber"),
-    "scm:git@github.com:hagay3/skuber.git"
+    url("https://github.com/jroper/skuber3"),
+    "scm:git@github.com:jroper/skuber3.git"
   )
 )
 
-ThisBuild / developers  := List(Developer(id="hagay3", name="Hagai Ovadia", email="hagay3@gmail.com", url=url("https://github.com/hagay3")))
+ThisBuild / developers  := List(
+  Developer(id="hagay3", name="Hagai Ovadia", email="hagay3@gmail.com", url=url("https://github.com/hagay3")),
+  Developer(id="jroper", name="James Roper", email="james@jazzy.id.au", url=url("https://jazzy.id.au"))
+)
 
 lazy val commonSettings = Seq(
-  organization := "io.github.hagay3",
+  organization := "au.id.jazzy",
   scalaVersion := currentScalaVersion,
   publishConfiguration := publishConfiguration.value.withOverwrite(true),
   publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(true),

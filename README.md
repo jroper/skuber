@@ -5,10 +5,9 @@
 </br>
 
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.hagay3/skuber_2.12?color=green&style=for-the-badge)](https://mvnrepository.com/artifact/io.github.hagay3/skuber_2.12)
-![Latest release date](https://img.shields.io/github/release-date/hagay3/skuber?style=for-the-badge)
-![Commit Activity](https://img.shields.io/github/commit-activity/m/hagay3/skuber?color=green&style=for-the-badge)
-[![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/byEh56vFJR)
+[![Maven Central](https://img.shields.io/maven-central/v/au.id.jazzy/skuber3_2.12?color=green&style=for-the-badge)](https://mvnrepository.com/artifact/au.id.jazzy/skuber3_2.12)
+![Latest release date](https://img.shields.io/github/release-date/jroper/skuber3?style=for-the-badge)
+![Commit Activity](https://img.shields.io/github/commit-activity/m/jroper/skuber3?color=green&style=for-the-badge)
 
 <p align="center">
   <strong>
@@ -17,6 +16,8 @@
  </p>
 
 </br>
+
+**Note: This is a fork of https://github.com/hagay3/skuber, intended for ongoing support of Akka. It should be considered to be in maintenance mode.**
 
 ## Quick start
 
@@ -41,11 +42,6 @@ This example lists pods in `kube-system` namespace:
 
 ## Documentation
 Read the [documentation](https://skuber.co) and join [discord community](https://discord.gg/byEh56vFJR) to  ask your questions!
-
-
-**Note: Since Akka license is no more an "Open Source” license, akka version won't be bumped until there will be an equivalent alternative.**
-
-**Currently, skuber implemented with akka 2.6.19 and the license is open-sourced.**
 
 
 ## Features
@@ -104,8 +100,5 @@ https://kubernetes.io/releases/
 
 
 ## Support
-I'm trying to be responsive to any new issues, you can create github issue or contact me.
 
-Skuber chat on discord: https://discord.gg/byEh56vFJR 
-
-Email: hagay3@gmail.com
+This fork is just in maintenance mode, I'll accept PRs to fix bugs, but big new features are not likely to be accepted.
