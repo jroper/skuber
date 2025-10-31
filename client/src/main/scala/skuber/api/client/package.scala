@@ -4,10 +4,10 @@ import java.time.Instant
 import java.util.UUID
 import akka.NotUsed
 import akka.actor.ActorSystem
-import akka.http.scaladsl.model.{HttpCharsets, HttpRequest, HttpResponse, MediaType}
+import akka.http.scaladsl.model.{ HttpCharsets, HttpRequest, HttpResponse, MediaType }
 import akka.http.scaladsl.settings.ConnectionPoolSettings
 import akka.stream.scaladsl.Flow
-import com.typesafe.config.{Config, ConfigFactory}
+import com.typesafe.config.{ Config, ConfigFactory }
 import org.joda.time.DateTime
 import play.api.libs.functional.syntax._
 import play.api.libs.json.Reads._
@@ -15,6 +15,8 @@ import play.api.libs.json._
 import skuber.ObjectResource
 import skuber.api.client.impl.KubernetesClientImpl
 import skuber.api.client.token.RefreshableToken
+
+import scala.concurrent.Future
 import scala.sys.SystemProperties
 import scala.util.Try
 
@@ -41,6 +43,10 @@ package object client {
 
   sealed trait AccessTokenAuth extends AuthInfo {
     def accessToken: String
+  }
+
+  sealed trait AsyncAccessTokenAuth extends AuthInfo {
+    def accessToken: Future[String]
   }
 
   object NoAuth extends AuthInfo {

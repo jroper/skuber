@@ -88,7 +88,7 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
     rd: ResourceDefinition[_],
     nameComponent: Option[String],
     query: Option[Uri.Query] = None,
-    namespace: Option[String] = Some(namespaceName)): HttpRequest =
+    namespace: Option[String] = Some(namespaceName)): Future[HttpRequest] =
   {
     val nsPathComponent: Option[String] =
       (rd.spec.scope, namespace) match {
@@ -119,7 +119,7 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
     }
 
     val req = requestMaker(uri, method)
-    HTTPRequestAuth.addAuth(req, requestAuth)
+    HTTPRequestAuth.addAuthAsync(req, requestAuth)
   }
 
   private[skuber] def logInfo(enabledLogEvent: Boolean, msg: => String)(implicit lc: LoggingContext) =
@@ -228,9 +228,9 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
     val marshal = Marshal(obj)
     for {
       requestEntity        <- marshal.to[RequestEntity]
-      httpRequest          = buildRequest(method, rd, nameComponent, namespace = Some(targetNamespace))
-          .withEntity(requestEntity.withContentType(MediaTypes.`application/json`))
-      newOrUpdatedResource <- makeRequestReturningObjectResource[O](httpRequest)
+      httpRequest          <- buildRequest(method, rd, nameComponent, namespace = Some(targetNamespace))
+      requestWithEntity = httpRequest.withEntity(requestEntity.withContentType(MediaTypes.`application/json`))
+      newOrUpdatedResource <- makeRequestReturningObjectResource[O](requestWithEntity)
     } yield newOrUpdatedResource
   }
 
@@ -308,8 +308,8 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
 
   private def listInNamespace[L <: ListResource[_]](theNamespace: String, rd: ResourceDefinition[_])(implicit fmt: Format[L], lc: LoggingContext): Future[L] =
   {
-    val req = buildRequest(HttpMethods.GET, rd, None, namespace = Some(theNamespace))
-    makeRequestReturningListResource[L](req)
+    buildRequest(HttpMethods.GET, rd, None, namespace = Some(theNamespace))
+      .flatMap(makeRequestReturningListResource[L])
   }
 
   /*
@@ -350,8 +350,8 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
       val optsInfo = maybeOptions map { opts => s" with options '${opts.asMap.toString}'" } getOrElse ""
       logDebug(s"[List request: resources of kind '${rd.spec.names.kind}'${optsInfo}")
     }
-    val req = buildRequest(HttpMethods.GET, rd, None, query = queryOpt, namespace)
-    makeRequestReturningListResource[L](req)
+    buildRequest(HttpMethods.GET, rd, None, query = queryOpt, namespace)
+      .flatMap(makeRequestReturningListResource[L])
   }
 
   override def getOption[O <: ObjectResource](name: String, namespace: Option[String] = None)(implicit fmt: Format[O], rd: ResourceDefinition[O], lc: LoggingContext): Future[Option[O]] =
@@ -376,8 +376,8 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
 
   private[api] def _get[O <: ObjectResource](name: String, namespace: Option[String] = Some(namespaceName))(implicit fmt: Format[O], rd: ResourceDefinition[O], lc: LoggingContext): Future[O] =
   {
-    val req = buildRequest(HttpMethods.GET, rd, Some(name), namespace = namespace)
-    makeRequestReturningObjectResource[O](req)
+    buildRequest(HttpMethods.GET, rd, Some(name), namespace = namespace)
+      .flatMap(makeRequestReturningObjectResource[O])
   }
 
   override def delete[O <: ObjectResource](name: String, gracePeriodSeconds: Int = -1, namespace: Option[String] = None)(implicit rd: ResourceDefinition[O], lc: LoggingContext): Future[Unit] =
@@ -392,9 +392,9 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
     val marshalledOptions = Marshal(options)
     for {
       requestEntity <- marshalledOptions.to[RequestEntity]
-      request = buildRequest(method = HttpMethods.DELETE, rd = rd, nameComponent = Some(name), namespace = namespace)
-        .withEntity(requestEntity.withContentType(MediaTypes.`application/json`))
-      response <- invoke(request)
+      request  <- buildRequest(method = HttpMethods.DELETE, rd = rd, nameComponent = Some(name), namespace = namespace)
+      requestWithEntity = request.withEntity(requestEntity.withContentType(MediaTypes.`application/json`))
+      response <- invoke(requestWithEntity)
       responseStatusOpt <- checkResponseStatus(response)
       _ <- ignoreResponseBody(response, responseStatusOpt)
     } yield ()
@@ -424,8 +424,8 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
       val lsInfo = maybeLabelSelector map { ls => s" with label selector '${ls.toString}'" } getOrElse ""
       logDebug(s"[Delete request: resources of kind '${rd.spec.names.kind}'${lsInfo}")
     }
-    val req = buildRequest(HttpMethods.DELETE, rd, None, query = queryOpt, namespace)
-    makeRequestReturningListResource[L](req)
+    buildRequest(HttpMethods.DELETE, rd, None, query = queryOpt, namespace)
+      .flatMap(makeRequestReturningListResource[L])
   }
 
   override def getPodLogSource(name: String, queryParams: Pod.LogQueryParams, namespace: Option[String] = None)(implicit lc: LoggingContext): Future[Source[ByteString, _]] =
@@ -439,16 +439,17 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
     }
     val nameComponent=s"${name}/log"
     val rd = implicitly[ResourceDefinition[Pod]]
-    val request = buildRequest(HttpMethods.GET, rd, Some(nameComponent), query, targetNamespace)
-    invokeLog(request).flatMap { response =>
-      val statusOptFut = checkResponseStatus(response)
-      statusOptFut map {
+    for {
+      request <- buildRequest(HttpMethods.GET, rd, Some(nameComponent), query, targetNamespace)
+      response <- invokeLog(request)
+      statusOpt <- checkResponseStatus(response)
+      _ <- statusOpt match {
         case Some(status) =>
-          throw new K8SException(status)
-        case _ =>
-          response.entity.dataBytes
+          Future.failed(new K8SException(status))
+        case None =>
+          Future.successful(())
       }
-    }
+    } yield response.entity.dataBytes
   }
 
 
@@ -521,8 +522,8 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
   // define an implicit Scale.SubresourceSpec, which is required to be passed to these methods.
   override def getScale[O <: ObjectResource](objName: String, namespace: Option[String] = None)(implicit rd: ResourceDefinition[O], sc: Scale.SubresourceSpec[O], lc: LoggingContext) : Future[Scale] =
   {
-    val req = buildRequest(HttpMethods.GET, rd, Some(objName+ "/scale"), namespace = namespace)
-    makeRequestReturningObjectResource[Scale](req)
+    buildRequest(HttpMethods.GET, rd, Some(objName + "/scale"), namespace = namespace)
+      .flatMap(makeRequestReturningObjectResource[Scale])
   }
 
   @deprecated("use getScale followed by updateScale instead")
@@ -540,9 +541,9 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
     val marshal = Marshal(scale)
     for {
       requestEntity  <- marshal.to[RequestEntity]
-      httpRequest    = buildRequest(HttpMethods.PUT, rd, Some(s"${objName}/scale"), namespace = namespace)
-          .withEntity(requestEntity.withContentType(MediaTypes.`application/json`))
-      scaledResource <- makeRequestReturningObjectResource[Scale](httpRequest)
+      httpRequest    <- buildRequest(HttpMethods.PUT, rd, Some(s"${objName}/scale"), namespace = namespace)
+      requestWithEntity = httpRequest.withEntity(requestEntity.withContentType(MediaTypes.`application/json`))
+      scaledResource <- makeRequestReturningObjectResource[Scale](requestWithEntity)
     } yield scaledResource
   }
 
@@ -562,25 +563,29 @@ class KubernetesClientImpl private[client] (val requestMaker: (Uri, HttpMethod) 
     val marshal = Marshal(patchData)
     for {
       requestEntity <- marshal.to[RequestEntity]
-      httpRequest = buildRequest(HttpMethods.PATCH, rd, Some(name), namespace = targetNamespace)
-          .withEntity(requestEntity.withContentType(contentType))
-      newOrUpdatedResource <- makeRequestReturningObjectResource[O](httpRequest)
+      httpRequest <- buildRequest(HttpMethods.PATCH, rd, Some(name), namespace = targetNamespace)
+      requestWithEntity = httpRequest.withEntity(requestEntity.withContentType(contentType))
+      newOrUpdatedResource <- makeRequestReturningObjectResource[O](requestWithEntity)
     } yield newOrUpdatedResource
   }
 
   override def jsonMergePatch[O <: ObjectResource](obj: O, patch: String, namespace: Option[String] = None) (implicit rd: ResourceDefinition[O], fmt: Format[O], lc:LoggingContext): Future[O] =
   {
     val patchRequestEntity = HttpEntity.Strict(`application/merge-patch+json`, ByteString(patch))
-    val httpRequest = buildRequest(HttpMethods.PATCH, rd, Some(obj.name), namespace = namespace).withEntity(patchRequestEntity)
-    makeRequestReturningObjectResource[O](httpRequest)
+    for {
+      httpRequest <- buildRequest(HttpMethods.PATCH, rd, Some(obj.name), namespace = namespace)
+      requestWithEntity = httpRequest.withEntity(patchRequestEntity)
+      result <- makeRequestReturningObjectResource[O](requestWithEntity)
+    } yield result
+
   }
 
   // get API versions supported by the cluster
   override def getServerAPIVersions(implicit lc: LoggingContext): Future[List[String]] = {
     val url = clusterServer + "/api"
     val noAuthReq = requestMaker(Uri(url), HttpMethods.GET)
-    val request = HTTPRequestAuth.addAuth(noAuthReq, requestAuth)
     for {
+      request <- HTTPRequestAuth.addAuthAsync(noAuthReq, requestAuth)
       response <- invoke(request)
       apiVersionResource <- toKubernetesResponse[APIVersions](response)(apiVersionsFormatReads, lc)
     } yield apiVersionResource.versions

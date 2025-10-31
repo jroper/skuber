@@ -127,13 +127,15 @@ class DynamicKubernetesClientImpl(context: Context = Context(),
     val queryOpt = options map { opts =>
       Uri.Query(opts.asMap)
     }
-    val req = buildRequest(method = HttpMethods.GET,
-      apiVersion = apiVersion,
-      resourcePlural = resourcePlural,
-      query = queryOpt,
-      nameComponent = None,
-      namespace = namespace)
-    makeRequestReturningObjectResource[DynamicKubernetesObjectList](req)
+    for {
+      req <- buildRequest(method = HttpMethods.GET,
+        apiVersion = apiVersion,
+        resourcePlural = resourcePlural,
+        query = queryOpt,
+        nameComponent = None,
+        namespace = namespace)
+      result <- makeRequestReturningObjectResource[DynamicKubernetesObjectList](req)
+    } yield result
   }
 
   /**
@@ -162,9 +164,9 @@ class DynamicKubernetesClientImpl(context: Context = Context(),
     val marshalledOptions = Marshal(options)
     for {
       requestEntity <- marshalledOptions.to[RequestEntity]
-      request = buildRequest(method = HttpMethods.DELETE, apiVersion = apiVersion, resourcePlural = resourcePlural, nameComponent = Some(name), namespace = namespace)
-        .withEntity(requestEntity.withContentType(MediaTypes.`application/json`))
-      response <- invoke(request)
+      request <- buildRequest(method = HttpMethods.DELETE, apiVersion = apiVersion, resourcePlural = resourcePlural, nameComponent = Some(name), namespace = namespace)
+      requestWithEntity = request.withEntity(requestEntity.withContentType(MediaTypes.`application/json`))
+      response <- invoke(requestWithEntity)
       responseStatusOpt <- checkResponseStatus(response)
       _ <- ignoreResponseBody(response, responseStatusOpt)
     } yield ()
@@ -174,8 +176,8 @@ class DynamicKubernetesClientImpl(context: Context = Context(),
   def getServerAPIVersions(implicit lc: LoggingContext): Future[List[String]] = {
     val url = clusterServer + "/api"
     val noAuthReq: HttpRequest = HttpRequest(method = HttpMethods.GET, uri = Uri(url))
-    val request = HTTPRequestAuth.addAuth(noAuthReq, requestAuth)
     for {
+      request <- HTTPRequestAuth.addAuthAsync(noAuthReq, requestAuth)
       response <- invoke(request)
       apiVersionResource <- toKubernetesResponse[DynamicKubernetesObject](response)
     } yield apiVersionResource.jsonRaw.jsValue.as[List[String]]
@@ -196,9 +198,9 @@ class DynamicKubernetesClientImpl(context: Context = Context(),
     val marshal = Marshal(rawInput.jsValue)
     for {
       requestEntity <- marshal.to[RequestEntity]
-      httpRequest = buildRequest(method, apiVersion, resourcePlural, nameComponent, namespace = namespace)
-        .withEntity(requestEntity.withContentType(MediaTypes.`application/json`))
-      newOrUpdatedResource <- makeRequestReturningObjectResource[DynamicKubernetesObject](httpRequest)
+      httpRequest <- buildRequest(method, apiVersion, resourcePlural, nameComponent, namespace = namespace)
+      requestWithEntity = httpRequest.withEntity(requestEntity.withContentType(MediaTypes.`application/json`))
+      newOrUpdatedResource <- makeRequestReturningObjectResource[DynamicKubernetesObject](requestWithEntity)
     } yield newOrUpdatedResource
   }
 
@@ -218,7 +220,7 @@ class DynamicKubernetesClientImpl(context: Context = Context(),
                                    resourcePlural: String,
                                    nameComponent: Option[String],
                                    query: Option[Uri.Query] = None,
-                                   namespace: Option[String]): HttpRequest = {
+                                   namespace: Option[String]): Future[HttpRequest] = {
     val nsPathComponent: Option[String] =
       namespace match {
         case Some(ns) => Some(s"namespaces/$ns")
@@ -246,7 +248,7 @@ class DynamicKubernetesClientImpl(context: Context = Context(),
     }
 
     val req: HttpRequest = HttpRequest(method = method, uri = uri)
-    HTTPRequestAuth.addAuth(req, requestAuth)
+    HTTPRequestAuth.addAuthAsync(req, requestAuth)
   }
 
   private[skuber] def logInfo(enabledLogEvent: Boolean, msg: => String)(implicit lc: LoggingContext): Unit = {
@@ -288,8 +290,8 @@ class DynamicKubernetesClientImpl(context: Context = Context(),
                         namespace: Option[String],
                         apiVersion: String,
                         resourcePlural: String)(implicit lc: LoggingContext): Future[DynamicKubernetesObject] = {
-    val req = buildRequest(HttpMethods.GET, apiVersion, resourcePlural, Some(name), namespace = namespace)
-    makeRequestReturningObjectResource[DynamicKubernetesObject](req)
+    buildRequest(HttpMethods.GET, apiVersion, resourcePlural, Some(name), namespace = namespace)
+      .flatMap(makeRequestReturningObjectResource[DynamicKubernetesObject])
   }
 
 

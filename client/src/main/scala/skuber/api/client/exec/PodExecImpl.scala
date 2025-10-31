@@ -2,7 +2,7 @@ package skuber.api.client.exec
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.model.headers.RawHeader
-import akka.http.scaladsl.model.{HttpHeader, StatusCodes, Uri, ws}
+import akka.http.scaladsl.model.{StatusCodes, Uri, ws}
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.http.scaladsl.{ConnectionContext, Http}
 import akka.stream.SinkShape
@@ -13,7 +13,6 @@ import play.api.libs.json.JsString
 import skuber.api.client.impl.KubernetesClientImpl
 import skuber.api.client.{K8SException, LoggingContext, Status}
 import skuber.api.security.HTTPRequestAuth
-import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 
 /**
@@ -67,10 +66,6 @@ object PodExecImpl {
       .withPath(Uri.Path(s"/api/v1/namespaces/$namespaceName/pods/$podName/exec"))
       .withQuery(Uri.Query(queries: _*))
 
-    // Compose headers
-    var headers: List[HttpHeader] = List(RawHeader("Accept", "*/*"))
-    headers ++= HTTPRequestAuth.getAuthHeader(requestContext.requestAuth).map(a => List(a)).getOrElse(List())
-
     // Convert `String` to `ByteString`, then prepend channel bytes
     val source: Source[ws.Message, Promise[Option[ws.Message]]] = maybeStdin.getOrElse(Source.empty).viaMat(Flow[String].map { s =>
       ws.BinaryMessage(ByteString(0).concat(ByteString(s)))
@@ -104,32 +99,32 @@ object PodExecImpl {
 
     // upgradeResponse completes or fails when the connection succeeds or fails
     // and promise controls the connection close timing
-    val (upgradeResponse, promise) = Http().singleWebSocketRequest(ws.WebSocketRequest(uri, headers, subprotocol = Option("channel.k8s.io")), flow, connectionContext)
-
-    val connected: Future[Done] = upgradeResponse.flatMap { upgrade =>
+    for {
+      authHeaders <- HTTPRequestAuth.getAuthHeaderAsync(requestContext.requestAuth)
+      headers = List(RawHeader("Accept", "*/*")) ++ authHeaders.toList
+      (upgradeResponseFuture, promise) = Http().singleWebSocketRequest(ws.WebSocketRequest(uri, headers, subprotocol = Option("channel.k8s.io")), flow, connectionContext)
+      upgrade <- upgradeResponseFuture
       // just like a regular http request we can access response status which is available via upgrade.response.status
       // status code 101 (Switching Protocols) indicates that server support WebSockets
-      if (upgrade.response.status == StatusCodes.SwitchingProtocols) {
+      _ <- if (upgrade.response.status == StatusCodes.SwitchingProtocols) {
         Future.successful(Done)
       } else {
         val detailsF = Unmarshal(upgrade.response.entity).to[String]
-        detailsF.map { details =>
-          throw new K8SException(Status(message =
-            Some(s"Connection failed with status ${upgrade.response.status}"), code = Some(upgrade.response.status.intValue()), details = Some(JsString(details))))
-            Done
+        detailsF.flatMap { details =>
+          Future.failed(new K8SException(Status(message =
+            Some(s"Connection failed with status ${upgrade.response.status}"), code = Some(upgrade.response.status.intValue()), details = Some(JsString(details)))))
         }
       }
-    }
-
-
-    val close = maybeClose.getOrElse(Promise.successful(()))
-    connected.foreach { _ =>
-      requestContext.log.info(s"Connected to container ${containerPrintName} of pod ${podName}")
-      close.future.foreach { _ =>
-        requestContext.log.info(s"Close the connection of container ${containerPrintName} of pod ${podName}")
-        promise.trySuccess(None)
+      close = maybeClose.getOrElse(Promise.successful(()))
+      _ = {
+        requestContext.log.info(s"Connected to container ${containerPrintName} of pod ${podName}")
+        close.future.foreach { _ =>
+          requestContext.log.info(s"Close the connection of container ${containerPrintName} of pod ${podName}")
+          promise.trySuccess(None)
+        }
       }
-    }
-    Future.sequence(Seq(connected, close.future, promise.future)).map { _ => () }
+      _ <- close.future
+      _ <- promise.future
+    } yield ()
   }
 }
